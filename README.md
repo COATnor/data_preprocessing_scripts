@@ -1,2 +1,2 @@
-# data_scripts
-Custom scripts used in COAT research
+# data_preprocessiong_scripts
+Data maintenance scripts for quality checking, preprocessing etc.
