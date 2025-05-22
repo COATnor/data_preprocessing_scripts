@@ -32,12 +32,14 @@
 
 
 ## PARAMETERS OF THE FUNCTION
-## dat_name:    full name of the classification file (including file path)
-## meta_name:   full name of the metadata file (including file path)
+## dat_name:    full name of the classification file (including file path) or name of the R object in case the data has been loaded already
+## meta_name:   full name of the metadata file (including file path) or name of the R object in case the data has been loaded already
 ## out_dir:     full path to the folder where the processed files should be saved (optional)
 ## save:        should the processed datafiles be saved? TRUE or FALSE
 ## keep_manual: all images from Komagdalen 2016-2018 have been classified manually. Either all manual classification can be kept (keep_manual = "all) or 
 ##              only manual classification of images with low confidence, mustelid images and quality check images can be kept for a consistent dataset over all years (keep_manual = "low_confidence)
+## is.dir:      should the data be loaded (dat_name or meta_name is the path to the files -> is.dir = TRUE) 
+##              or data is already loaded (dat_name and meta_name are the names of the R objects, is.dir = FALSE) 
 
 
 ## EXAMPLE
@@ -59,7 +61,8 @@
 ##                                           meta_name = meta_names[i], 
 ##                                           save = FALSE,
 ##                                           keep_manual = "low_confidence", 
-##                                           out_dir = "small_mammals/processed_data")
+##                                           out_dir = "small_mammals/processed_data",
+##                                           is.dir = TRUE)
 ## }
 
 
@@ -69,20 +72,38 @@
 ## FUNCTION
 ##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~##
 
-preprocess_classifications <- function(dat_name = dat_name, meta_name = meta_name, out_dir = out_dir, save = FALSE, keep_manual = "low_confidence") {
+preprocess_classifications <- function(dat_name = dat_name, meta_name = meta_name, out_dir = out_dir, save = FALSE, keep_manual = "low_confidence", is.dir = TRUE) {
   
   ## load libraries
-  if (!require('tidyverse', lib.loc = "/mnt/coat-ns8028k/Rlibs")) install.packages('tidyverse', lib = "/mnt/coat-ns8028k/Rlibs"); library('tidyverse', lib.loc = "/mnt/coat-ns8028k/Rlibs")
-  if (!require('lubridate', lib.loc = "/mnt/coat-ns8028k/Rlibs")) install.packages('lubridate', lib = "/mnt/coat-ns8028k/Rlibs"); library('lubridate', lib.loc = "/mnt/coat-ns8028k/Rlibs")
+  #if (!require('tidyverse', lib.loc = "/mnt/coat-ns8028k/Rlibs")) install.packages('tidyverse', lib = "/mnt/coat-ns8028k/Rlibs"); library('tidyverse', lib.loc = "/mnt/coat-ns8028k/Rlibs")
+  #if (!require('lubridate', lib.loc = "/mnt/coat-ns8028k/Rlibs")) install.packages('lubridate', lib = "/mnt/coat-ns8028k/Rlibs"); library('lubridate', lib.loc = "/mnt/coat-ns8028k/Rlibs")
+  
+  library(tidyverse)
+  library(lubridate)
   
   ## clear workspace and free some memory (R will crash if all memory is used)
   suppressWarnings(remove(list = c("dat_1", "dat_2", "dat_3", "dat_all", "dat_animal_empty_bad_quality", "dat_events_manual", "dat_motion", "dat_new", 
-                  "test", "events_manual", "events_same", "events_check", "images_manual", "images_same"))) 
+                                   "test", "events_manual", "events_same", "events_check", "images_manual", "images_same"))) 
   gc(reset = TRUE)
   
   ## load data
-  dat <- read.table(dat_name, header = TRUE, sep = ";")
-  meta <- read.table(meta_name, header = TRUE, sep = ";")
+  
+  if (is.dir) {
+    dat <- read.table(dat_name, header = TRUE, sep = ";")
+    meta <- read.table(meta_name, header = TRUE, sep = ";")
+  } else {
+    dat <- dat_name
+    meta <- meta_name
+    dat_name <- paste(dat$sn_locality[1], dat$t_date[nrow(dat)])
+  }
+  
+  
+  if ("corrupted image" %in% meta$v_comment) {
+    if (!all(meta$v_image_name %in% dat$v_image_name)) {
+      meta <- meta[-which(meta$v_comment == "corrupted image"),]
+      print(paste("images missing in classification file", dat_name))
+    }
+  }
   
   if(!all(dat$v_image_name %in% meta$v_image_name)) {
     print(paste("check", dat_name))
@@ -116,7 +137,7 @@ preprocess_classifications <- function(dat_name = dat_name, meta_name = meta_nam
     events_manual <- dat_motion$event[which(dat_motion$v_presence_manual == 1)]  # all events that have a manual classification
     dat_events_manual <- dat_motion[which(dat_motion$event %in% events_manual & dat_motion$v_presence_manual == 1),]  # dataframe with all images with manual classification
   }
-
+  
   ## images with one manual classification
   images_1_manual <- dat_events_manual[!dat_events_manual$event %in% dat_events_manual$event[duplicated(dat_events_manual$event)],]$v_image_name
   
@@ -237,7 +258,7 @@ preprocess_classifications <- function(dat_name = dat_name, meta_name = meta_nam
   
   ## Combine manual and automatic classification -----------------------------
   
-  if(grepl("komagdalen", dat_names[i]) & grepl(c("2016|2017|2018"), dat_names[i]) & keep_manual == "low_confidence") {
+  if(grepl("komagdalen", dat_name) & grepl(c("2016|2017|2018"), dat_name) & keep_manual == "low_confidence") {
     temp <- dat_new$v_image_name[which(grepl("manual_classification", dat_new$v_type_manual_classification) & dat_new$v_confidence_automatic >= 0.9)]
     dat_new$v_presence_manual[dat_new$v_image_name %in% temp] <- NA
   }
@@ -253,7 +274,8 @@ preprocess_classifications <- function(dat_name = dat_name, meta_name = meta_nam
   
   if (!length(events_check) == length(events)) {
     temp <-  events[!events %in% events_check]
-    if(!all(temp %in% missing$event)) {
+    temp <- temp[!temp %in% missing$event]
+    if(length(temp) != 0) {
       print(paste("needs checking", dat_name))
     }
   }
@@ -264,7 +286,7 @@ preprocess_classifications <- function(dat_name = dat_name, meta_name = meta_nam
   test <- dat_new %>% dplyr::group_by(v_image_name) %>% 
     dplyr::summarise(sum_pres = sum(v_presence, na.rm = TRUE))
   
-  ## check that ever image has only on classification
+  ## check that every image has only one classification
   if(!all(test$sum_pres == 1)) print(paste("needs checking", dat_name)) 
   
   
