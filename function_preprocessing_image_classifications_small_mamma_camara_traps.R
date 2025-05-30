@@ -274,7 +274,7 @@ preprocess_classifications <- function(dat_name = dat_name, meta_name = meta_nam
   
   if (!length(events_check) == length(events)) {
     temp <-  events[!events %in% events_check]
-    temp <- temp[!temp %in% missing$event]
+    if (nrow(missing) != 0) temp <- temp[!temp %in% missing$event]
     if(length(temp) != 0) {
       print(paste("needs checking", dat_name))
     }
