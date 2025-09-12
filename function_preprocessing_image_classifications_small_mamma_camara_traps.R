@@ -1,12 +1,19 @@
 ##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~##
-## PREPROCESS SMALL MAMMAL CAMERA TRAP IMAGE CLASSIFICATION DATA
+## FUNCTIONS FOR PREPROCESSING SMALL MAMMAL CAMERA TRAP IMAGE CLASSIFICATION DATA
 ## last update 27.01.2023
 ## script made by Hanna Boehner
 ##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~##
 
 
 ## DESCRIPTION
-## This function is used to preprocess the datasets 'V_rodents_cameratraps_image_classification_lemming_blocks' and 'V_rodents_cameratraps_image_classification_intensive_quadrats'
+## This script contains functions to preprocess the datasets 'V_rodents_cameratraps_image_classification_lemming_blocks' and 'V_rodents_cameratraps_image_classification_intensive_quadrats'
+## There is a function that filters the relevant classifications of the two motion sensor images,
+## a function that sets all images of a day to bad_quality if the two time lapse images of that day are classified as bad_quality
+## and a function that adds the days when a camera was not functioning (with NA for species presence)
+
+
+## FUNCTION 1: preprocess_classifictions() ------------------------------------------------------------------------------------------
+
 ## The camera traps are set to take two images per motion sensor trigger event and both images are included in the raw dataset
 ## In addition, a subset of images was classified manually and both, manual and automatic classification are included in the raw dataset
 ## The function returns a dataset with only one image per trigger event and only one classification (manual or automatic)
@@ -44,7 +51,7 @@
 
 ## EXAMPLE
 
-## source("function_preprocess_image_classifications.R")  # load the function
+## source("https://github.com/COATnor/data_preprocessing_scripts/blob/master/function_preprocessing_image_classifications_small_mamma_camara_traps.R?raw=TRUE")  # load the function from GitHub
 
 ## data_dir <- "small_mammals/V_rodents_cameratraps_image_classification_lemming_blocks"  # path to the classification files
 ## meta_dir <- "small_mammals/V_rodents_cameratraps_image_metadata_lemming_blocks"  # path to the metadata files
@@ -66,20 +73,56 @@
 ## }
 
 
+## FUNCTION 2: filter_bad_quality() ------------------------------------------------------------------------------------------
+
+## This function uses the output from preprocess_classifications() 
+## and sets all images of a day to bad quality if the two time lapse images of that day were classified as bad quality
+
+## PARAMETERS OF THE FUNCTION
+## data:  name of the data that should be filtered (name of the R object)
+
+## EXAMPLE
+
+## source("https://github.com/COATnor/data_preprocessing_scripts/blob/master/function_preprocessing_image_classifications_small_mamma_camara_traps.R?raw=TRUE")  # load the function from GitHub
+
+## ## loop through all files of dat (data list that has been preprocessed)
+
+## dat_filtered <- c() # empty object to store the files (as a list)
+
+## for (i in 1:length(dat)) {
+##    dat_filtered(data = dat[[i]])
+## }
 
 
+## FUNCTION 3: add_cameras() ------------------------------------------------------------------------------------------
+
+## This function uses the output from filter_bad_quality() (or preprocess_classifications())
+## and adds the days when a camera was not functioning (e.g. batteries were empty)
+## the functions returns a data frame that contains all data from all years
+
+## PARAMETERS OF THE FUNCTIONS
+## data_list:   name of the list that contains the data
+## max_year:    last year with data
+
+## EXAMPLE
+
+## source("https://github.com/COATnor/data_preprocessing_scripts/blob/master/function_preprocessing_image_classifications_small_mamma_camara_traps.R?raw=TRUE")  # load the function from GitHub
+
+##dat_add <- add_cameras(data_list = dat_filtered, max_year = 2024)
+
 ##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~##
-## FUNCTION
+## FUNCTIONS
 ##~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~##
+
+
+## PREPROCESS CLASSIFICATIONS ----------------------------------------------------------------------------------------------------
 
 preprocess_classifications <- function(dat_name = dat_name, meta_name = meta_name, out_dir = out_dir, save = FALSE, keep_manual = "low_confidence", is.dir = TRUE) {
   
   ## load libraries
-  #if (!require('tidyverse', lib.loc = "/mnt/coat-ns8028k/Rlibs")) install.packages('tidyverse', lib = "/mnt/coat-ns8028k/Rlibs"); library('tidyverse', lib.loc = "/mnt/coat-ns8028k/Rlibs")
-  #if (!require('lubridate', lib.loc = "/mnt/coat-ns8028k/Rlibs")) install.packages('lubridate', lib = "/mnt/coat-ns8028k/Rlibs"); library('lubridate', lib.loc = "/mnt/coat-ns8028k/Rlibs")
+  if (!require('tidyverse')) install.packages('tidyverse'); library('tidyverse')
+  if (!require('lubridate')) install.packages('lubridate'); library('lubridate')
   
-  library(tidyverse)
-  library(lubridate)
   
   ## clear workspace and free some memory (R will crash if all memory is used)
   suppressWarnings(remove(list = c("dat_1", "dat_2", "dat_3", "dat_all", "dat_animal_empty_bad_quality", "dat_events_manual", "dat_motion", "dat_new", 
@@ -304,4 +347,100 @@ preprocess_classifications <- function(dat_name = dat_name, meta_name = meta_nam
   
   return(dat_final)
   
+}
+
+
+## FILTER BAD QUALITY ----------------------------------------------------------------------------------------------------
+
+filter_bad_quality <- function(data = data) {
+  
+  ## all days when both time lapse images have bad quality
+  timelapse <-  data %>% filter(v_trigger_mode == "time_lapse" & v_class_id == "bad_quality") %>% 
+    group_by(sn_site, t_date) %>% 
+    summarize(all_bad_quality = all(v_presence == 1)) %>%
+    filter(all_bad_quality) %>%
+    select(sn_site, t_date) %>% 
+    mutate(site_date = paste(sn_site, t_date, sep = "_"))
+  
+  
+  ## add site_date to classification data 
+  data$site_date <- paste(data$sn_site, data$t_date, sep = "_")  
+  
+  ## set all observations on days with bad quality to NA
+  data$v_presence[data$site_date %in% timelapse$site_date] <- NA
+  
+  ## set bad_quality to 1
+  data$v_presence[data$site_date %in% timelapse$site_date & data$v_class_id == "bad_quality"] <- 1
+  
+  ## remove site_date
+  data <- select(data, -site_date)
+  
+  return(data)
+}
+
+
+## ADD CAMERAS------- ----------------------------------------------------------------------------------------------------
+
+add_cameras <- function(data_list = data_list, max_year = max_year) {
+  
+  ## combine all data files
+  dat <- do.call(rbind, data_list)
+  
+  ## get all sites
+  sites <- unique(dat$sn_site)
+  
+  ## loop across all sites and check if there are missing dates
+  for (i in 1:length(sites)) {
+    
+    ## keep only data from one sites
+    dat_site <- dat %>% filter(sn_site == sites[i]) %>% 
+      mutate(t_date = ymd(t_date)) 
+    
+    ## get the first and the last date
+    min_date <- min(dat_site$t_date)
+    max_date <- max(dat_site$t_date)
+    
+    ## check if the last date is not in june or july (to check if there are cameras that stopped too early in the last year they were included in the study design)
+    if (!month(max_date) %in% c(6, 7)) print(paste("check max date", sites[i], max_date))
+    
+    ## set the last date to first of july if the camera stopped too early in the current year
+    
+    if (dat_site$sc_type_of_sites_ecological[1] != "meadow") {
+      if (max_date < ymd(paste0(max_year, "-06-20")) & max_date > ymd(paste0(max_year-1, "-07-25"))) {
+        print(paste("add max date", sites[i]))
+        max_date <- ymd(paste0(max_year, "07-01"))
+      }
+    } else if (dat_site$sc_type_of_sites_ecological[1] == "meadow") {
+      if (max_date < ymd(paste0(max_year, "-08-25")) & max_date > ymd(paste0(max_year, "-06-20"))) {
+        print(paste("add max date", sites[i]))
+        max_date <- ymd(paste0(max_year, "09-01"))
+      }
+    }
+    
+    ## get all dates that should be inluded
+    all_dates <- seq(min_date, max_date, by = 1)
+    
+    ## get the missing dates
+    missing_dates <- all_dates[!all_dates %in% dat_site$t_date]
+    
+    ## add missing dates if there are any
+    if (length(missing_dates) != 0) {
+      
+      ## add missing dates to the data of the site
+      dat_new <- add_row(dat_site,
+                         sn_region = "varanger", sn_locality = dat_site$sn_locality[1], sn_section = dat_site$sn_section[1], 
+                         sc_type_of_sites_ecological = dat_site$sc_type_of_sites_ecological[1], sn_site = sites[i], 
+                         t_date = rep(missing_dates, each = 8), v_class_id = rep(unique(dat_site$v_class_id), length(missing_dates)))
+      
+      ## arrange after site and date
+      dat_new <- arrange(dat_new, sn_site, t_date)
+      
+      ## include data with missing dates in the complete dataset
+      dat <- dat %>%  filter(sn_site != sites[i]) %>% 
+        mutate(t_date = ymd(t_date)) %>% 
+        vctrs::vec_rbind(dat_new) %>% 
+        arrange(v_image_name)
+    }
+  }
+  return(dat)
 }
