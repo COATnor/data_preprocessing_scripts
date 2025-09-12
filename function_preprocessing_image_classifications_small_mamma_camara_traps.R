@@ -315,6 +315,18 @@ preprocess_classifications <- function(dat_name = dat_name, meta_name = meta_nam
   ## check if all images have a classification
   events_check <- dat_new$event[which(dat_new$v_presence == 1)]
   
+  ## check if there are images with two classifications
+  if (any(duplicated(events_check))) {
+    two_species <- events_check[which(duplicated(events_check))]
+    dat_two_species <- dat_new %>%  filter(event == two_species) %>% 
+      select(v_image_name, v_class_id, v_presence, v_comment_classification)
+    print(paste("tow species", dat_name))
+    print(dat_two_species)
+  }
+  
+  
+  ## check if all images have a classification
+  events_check <- events_check[!duplicated(events_check)]
   if (!length(events_check) == length(events)) {
     temp <-  events[!events %in% events_check]
     if (nrow(missing) != 0) temp <- temp[!temp %in% missing$event]
@@ -326,11 +338,11 @@ preprocess_classifications <- function(dat_name = dat_name, meta_name = meta_nam
   ## check if there are no duplicated events
   if(!all(as.data.frame(table(dat_new$event))$Freq == 8)) print(paste("needs checking", dat_name))
   
-  test <- dat_new %>% dplyr::group_by(v_image_name) %>% 
-    dplyr::summarise(sum_pres = sum(v_presence, na.rm = TRUE))
+  #test <- dat_new %>% dplyr::group_by(v_image_name) %>% 
+   # dplyr::summarise(sum_pres = sum(v_presence, na.rm = TRUE))
   
   ## check that every image has only one classification
-  if(!all(test$sum_pres == 1)) print(paste("needs checking", dat_name)) 
+  #if(!all(test$sum_pres == 1)) print(paste("needs checking", dat_name)) 
   
   
   ## reformat files ------------------------
