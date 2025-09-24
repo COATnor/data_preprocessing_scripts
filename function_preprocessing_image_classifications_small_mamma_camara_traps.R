@@ -90,7 +90,7 @@
 ## dat_filtered <- c() # empty object to store the files (as a list)
 
 ## for (i in 1:length(dat)) {
-##    dat_filtered(data = dat[[i]])
+##    dat_filtered[[i]] <- filter_bad_quality(data = dat[[i]])
 ## }
 
 
@@ -393,66 +393,74 @@ filter_bad_quality <- function(data = data) {
 
 ## ADD CAMERAS------- ----------------------------------------------------------------------------------------------------
 
-add_cameras <- function(data_list = data_list, max_year = max_year) {
+add_cameras <- function(data_list, max_year) {
   
-  ## combine all data files
-  dat <- do.call(rbind, data_list)
+  # Combine all data files
+  dat <- bind_rows(data_list)
   
-  ## get all sites
+  # Ensure t_date is in Date format
+  dat <- dat %>% mutate(t_date = ymd(t_date))
+  
+  # Get all sites
   sites <- unique(dat$sn_site)
   
-  ## loop across all sites and check if there are missing dates
-  for (i in 1:length(sites)) {
-    
-    ## keep only data from one sites
-    dat_site <- dat %>% filter(sn_site == sites[i]) %>% 
-      mutate(t_date = ymd(t_date)) 
-    
-    ## get the first and the last date
-    min_date <- min(dat_site$t_date)
-    max_date <- max(dat_site$t_date)
-    
-    ## check if the last date is not in june or july (to check if there are cameras that stopped too early in the last year they were included in the study design)
-    if (!month(max_date) %in% c(6, 7)) print(paste("check max date", sites[i], max_date))
-    
-    ## set the last date to first of july if the camera stopped too early in the current year
-    
-    if (dat_site$sc_type_of_sites_ecological[1] != "meadow") {
-      if (max_date < ymd(paste0(max_year, "-06-20")) & max_date > ymd(paste0(max_year-1, "-07-25"))) {
-        print(paste("add max date", sites[i]))
-        max_date <- ymd(paste0(max_year, "07-01"))
-      }
-    } else if (dat_site$sc_type_of_sites_ecological[1] == "meadow") {
-      if (max_date < ymd(paste0(max_year, "-08-25")) & max_date > ymd(paste0(max_year, "-06-20"))) {
-        print(paste("add max date", sites[i]))
-        max_date <- ymd(paste0(max_year, "09-01"))
-      }
-    }
-    
-    ## get all dates that should be inluded
-    all_dates <- seq(min_date, max_date, by = 1)
-    
-    ## get the missing dates
-    missing_dates <- all_dates[!all_dates %in% dat_site$t_date]
-    
-    ## add missing dates if there are any
-    if (length(missing_dates) != 0) {
-      
-      ## add missing dates to the data of the site
-      dat_new <- add_row(dat_site,
-                         sn_region = "varanger", sn_locality = dat_site$sn_locality[1], sn_section = dat_site$sn_section[1], 
-                         sc_type_of_sites_ecological = dat_site$sc_type_of_sites_ecological[1], sn_site = sites[i], 
-                         t_date = rep(missing_dates, each = 8), v_class_id = rep(unique(dat_site$v_class_id), length(missing_dates)))
-      
-      ## arrange after site and date
-      dat_new <- arrange(dat_new, sn_site, t_date)
-      
-      ## include data with missing dates in the complete dataset
-      dat <- dat %>%  filter(sn_site != sites[i]) %>% 
-        mutate(t_date = ymd(t_date)) %>% 
-        vctrs::vec_rbind(dat_new) %>% 
-        arrange(v_image_name)
-    }
+  # Precompute the range of dates for each site
+  site_date_ranges <- dat %>%
+    group_by(sn_site) %>%
+    summarize(
+      min_date = min(t_date),
+      max_date = max(t_date),
+      sc_type_of_sites_ecological = first(sc_type_of_sites_ecological),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      adjusted_max_date = case_when(
+        sc_type_of_sites_ecological != "meadow" & 
+          max_date < ymd(paste0(max_year, "-06-20")) & 
+          max_date > ymd(paste0(max_year - 1, "-07-25")) ~ ymd(paste0(max_year, "-07-01")),
+        sc_type_of_sites_ecological == "meadow" & 
+          max_date < ymd(paste0(max_year, "-08-25")) & 
+          max_date > ymd(paste0(max_year, "-06-20")) ~ ymd(paste0(max_year, "-09-01")),
+        TRUE ~ max_date
+      )
+    )
+  
+  # Print sites with max_date not in June or July
+  sites_to_check <- site_date_ranges %>%
+    filter(!month(max_date) %in% c(6, 7))
+  
+  if (nrow(sites_to_check) > 0) {
+    print("Sites with max_date not in June or July:")
+    print(sites_to_check %>% select(sn_site, max_date))
   }
+  
+  # Generate all missing dates for each site
+  all_dates <- site_date_ranges %>%
+    rowwise() %>%
+    mutate(
+      full_dates = list(seq(min_date, adjusted_max_date, by = "1 day"))
+    ) %>%
+    ungroup() %>%
+    select(sn_site, full_dates) %>%
+    unnest(full_dates)
+  
+  # Join with the original data to find missing dates
+  missing_dates <- all_dates %>%
+    left_join(dat, by = c("sn_site", "full_dates" = "t_date")) %>%
+    filter(is.na(v_class_id)) %>%
+    select(sn_site, t_date = full_dates) %>%
+    left_join(site_date_ranges, by = "sn_site") %>%
+    mutate(
+      sn_region = "varanger",
+      sn_locality = first(dat$sn_locality[dat$sn_site == sn_site]),
+      sn_section = first(dat$sn_section[dat$sn_site == sn_site]),
+      v_class_id = list(unique(dat$v_class_id[dat$sn_site == sn_site]))
+    ) %>%
+    unnest(v_class_id)
+  
+  # Combine the original data with the missing dates
+  dat <- bind_rows(dat, missing_dates) %>%
+    arrange(v_image_name)
+  
   return(dat)
 }
