@@ -406,6 +406,7 @@ add_cameras <- function(data_list, max_year) {
   
   # Precompute the range of dates for each site
   site_date_ranges <- dat %>%
+    filter(!is.na(t_date)) %>%
     group_by(sn_site) %>%
     summarize(
       min_date = min(t_date),
