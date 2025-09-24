@@ -461,7 +461,7 @@ add_cameras <- function(data_list, max_year) {
   
   # Combine the original data with the missing dates
   dat <- bind_rows(dat, missing_dates) %>%
-    arrange(v_image_name)
+    arrange(sn_site, t_date, v_image_name)
   
   return(dat)
 }
