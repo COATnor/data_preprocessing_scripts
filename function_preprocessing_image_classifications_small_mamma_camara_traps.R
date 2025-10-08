@@ -421,19 +421,19 @@ add_cameras <- function(data_list, max_year) {
           max_date > ymd(paste0(max_year - 1, "-07-25")) ~ ymd(paste0(max_year, "-07-01")),
         sc_type_of_sites_ecological == "meadow" & 
           max_date < ymd(paste0(max_year, "-08-25")) & 
-          max_date > ymd(paste0(max_year, "-06-20")) ~ ymd(paste0(max_year, "-09-01")),
+          max_date > ymd(paste0(max_year, "-06-20")) ~ ymd(paste0(max_year, "-08-31")),
         TRUE ~ max_date
       )
     )
   
   # Print sites with max_date not in June or July
-  sites_to_check <- site_date_ranges %>%
-    filter(!month(max_date) %in% c(6, 7))
+  #sites_to_check <- site_date_ranges %>%
+   # filter(!month(max_date) %in% c(6, 7))
   
-  if (nrow(sites_to_check) > 0) {
-    print("Sites with max_date not in June or July:")
-    print(sites_to_check %>% select(sn_site, max_date))
-  }
+  #if (nrow(sites_to_check) > 0) {
+   # print("Sites with max_date not in June or July:")
+    #print(sites_to_check %>% select(sn_site, max_date))
+  #}
   
   # Generate all missing dates for each site
   all_dates <- site_date_ranges %>%
@@ -461,6 +461,7 @@ add_cameras <- function(data_list, max_year) {
   
   # Combine the original data with the missing dates
   dat <- bind_rows(dat, missing_dates) %>%
+    select(-min_date, -max_date, -adjusted_max_date) %>% 
     arrange(sn_site, t_date, v_image_name)
   
   return(dat)
